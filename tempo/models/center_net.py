@@ -3,7 +3,8 @@
 # Licensed under the MIT License.
 # ------------------------------------------------------------------------------
 import pdb
-
+import sys
+sys.path.append('/home/kashis/Desktop/CV2/tempo')
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,6 +12,12 @@ from mmcv.cnn import ConvModule
 
 from mmpose.models import BACKBONES
 from .base_backbone import BaseBackbone
+from pytorch_stacked_hourglass.models.layers import Conv, Hourglass, Pool, Residual
+from pytorch_stacked_hourglass.task.loss import HeatmapLoss
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 
 
 # 2d conv blocks

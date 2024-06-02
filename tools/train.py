@@ -2,12 +2,15 @@
 import argparse
 import copy
 import os
+import sys
+sys.path.append(os.getcwd())
 import os.path as osp
 import time
 import warnings
 import pdb
 import mmcv
 import torch
+torch.cuda.empty_cache()
 import torch.distributed as dist
 from mmcv import Config, DictAction
 from mmcv.runner import get_dist_info, init_dist, set_random_seed
@@ -20,6 +23,9 @@ from mmpose.models import build_posenet
 from mmpose.utils import collect_env, get_root_logger, setup_multi_processes
 
 from tempo import *
+
+class DefaultArgs():
+    pass
 
 
 def parse_args():
@@ -85,14 +91,34 @@ def parse_args():
 
 
 def main():
-    args = parse_args()
+    # args = parse_args()
+
+    def_args_dict = {
+        "config": "/home/kashis/Desktop/CV2/tempo/configs/panoptic/resnet_rnn_panoptic_cam5.py",
+        "gpus": 1,
+        "autoscale_lr": False,
+        "resume_from": False,
+        "work_dir": '/home/kashis/Desktop/CV2/tempo/work_dir',
+        "gpu_ids": None,
+        "launcher": 'none',
+        "cfg_options": None,
+        "seed": 42,
+        "diff_seed": False,
+        "deterministic": True,
+        "no_validate": True
+    }
+    args = DefaultArgs()
+
+    args.__dict__ = def_args_dict
+
+
     cfg = Config.fromfile(args.config)
 
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
 
     # set multi-process settings
-    setup_multi_processes(cfg)
+    # setup_multi_processes(cfg)
 
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
@@ -147,7 +173,7 @@ def main():
     # init the logger before other steps
     timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     log_file = osp.join(cfg.work_dir, f'{timestamp}.log')
-    logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
+    logger = get_root_logger(log_file=log_file, log_level='INFO')
 
     # init the meta dict to record some important information such as
     # environment info and seed, which will be logged
@@ -162,7 +188,7 @@ def main():
 
     # log some basic info
     logger.info(f'Distributed training: {distributed}')
-    logger.info(f'Config:\n{cfg.pretty_text}')
+    # logger.info(f'Config:\n{cfg.pretty_text}')
 
     # set random seeds
     seed = init_random_seed(args.seed)
