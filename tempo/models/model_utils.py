@@ -28,16 +28,16 @@ class RNNFeatureEncoder(nn.Module):
             time = 1
 
         ###################################################################
-        for i in range(time):
-            encoding_t = self.encoder_net(x[:, i, :, :, :])
+        for i in range(time): ## TODO : handle time for encoding_shg
+            encoding_t, _ = self.encoder_net(x[:, i, :, :, :])
             encoding_t = encoding_t.unsqueeze(1)
             self.hidden_state = self.spatial_gru(encoding_t,
                                                  self.hidden_state).squeeze(1)
-            output = self.decode_block(self.hidden_state)
+            output,encoding_shg = self.decode_block(self.hidden_state)
             outputs.append(output)
 
         outputs = torch.stack(outputs, dim=1)
-        return outputs, self.hidden_state
+        return outputs, self.hidden_state, encoding_shg
 
 
 def max_pool(inputs, kernel=3):

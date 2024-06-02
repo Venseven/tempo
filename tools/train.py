@@ -1,4 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import sys
+sys.path.append('/nfs/hpc/share/subramav/CV2/tempo')
 import argparse
 import copy
 import os
@@ -83,11 +85,32 @@ def parse_args():
 
     return args
 
+class DefaultArgs():
+    pass
 
 def main():
-    args = parse_args()
-    cfg = Config.fromfile(args.config)
+    # args = parse_args()
 
+    def_args_dict = {
+        "config": "/nfs/hpc/share/subramav/CV2/tempo/configs/panoptic/resnet_rnn_panoptic_cam5.py",
+        "gpus": 1,
+        "autoscale_lr": False,
+        "resume_from": False,
+        "work_dir": '/nfs/hpc/share/subramav/CV2/tempo/work_dir',
+        "gpu_ids": None,
+        "launcher": 'none',
+        "cfg_options": None,
+        "seed": 42,
+        "diff_seed": False,
+        "deterministic": True,
+        "no_validate": True
+    }
+    args = DefaultArgs()
+    # cfg = Config.fromfile(args.config)
+
+
+    args.__dict__ = def_args_dict
+    cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
 
@@ -162,7 +185,7 @@ def main():
 
     # log some basic info
     logger.info(f'Distributed training: {distributed}')
-    logger.info(f'Config:\n{cfg.pretty_text}')
+    # logger.info(f'Config:\n{cfg.pretty_text}')
 
     # set random seeds
     seed = init_random_seed(args.seed)

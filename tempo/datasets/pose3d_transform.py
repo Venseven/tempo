@@ -45,11 +45,12 @@ class GenerateVoxelMultiDHeatmapTarget:
         num_people = len(joints_3d)
         num_joints = joints_3d[0].shape[0]
 
-        if self.joint_indices is not None:
-            num_joints = len(self.joint_indices)
-            joint_indices = self.joint_indices
-        else:
-            joint_indices = list(range(num_joints))
+        # if self.joint_indices is not None:
+        #     num_joints = len(self.joint_indices)
+        #     joint_indices = self.joint_indices
+        # else:
+        #     joint_indices = list(range(num_joints))
+        joint_indices = list(range(num_joints))
 
         space_size = cfg['space_size']
         space_center = cfg['space_center']
@@ -69,6 +70,9 @@ class GenerateVoxelMultiDHeatmapTarget:
                              dtype=np.float32)
         target_1d = np.zeros((num_joints, self.max_num_people, cube_size[2]),
                              dtype=np.float32)
+        target_humans = np.zeros(
+            (num_people ,num_joints, cube_size[0], cube_size[1], cube_size[2]),
+            dtype=np.float32)
 
         for n in range(num_people):
             for idx, joint_id in enumerate(joint_indices):
@@ -105,6 +109,9 @@ class GenerateVoxelMultiDHeatmapTarget:
                 target[idx, i_x[0]:i_x[1], i_y[0]:i_y[1], i_z[0]:i_z[1]] \
                     = np.maximum(target[idx, i_x[0]:i_x[1],
                                  i_y[0]:i_y[1], i_z[0]:i_z[1]], g)
+                target_humans[n, idx, i_x[0]:i_x[1], i_y[0]:i_y[1], i_z[0]:i_z[1]] \
+                    = np.maximum(target[idx, i_x[0]:i_x[1],
+                                 i_y[0]:i_y[1], i_z[0]:i_z[1]], g)
                 # Below is lifted from F-VP.
                 # generate 2D target
                 kernel_xs, kernel_ys = np.meshgrid(
@@ -131,9 +138,10 @@ class GenerateVoxelMultiDHeatmapTarget:
             target_2d = target_2d[0]
             target_1d = target_1d[0]
 
-        results['targets_3d'] = target
+        results['targets_3d'] = target_humans
         results['targets_2d'] = target_2d
         results['targets_1d'] = target_1d
+        results["cube_each_people"] = target_humans
 
         return results
 

@@ -3,7 +3,8 @@
 # Licensed under the MIT License.
 # ------------------------------------------------------------------------------
 import pdb
-
+import sys
+sys.path.append('/nfs/hpc/share/subramav/CV2/tempo')
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,6 +12,8 @@ from mmcv.cnn import ConvModule
 
 from mmpose.models import BACKBONES
 from .base_backbone import BaseBackbone
+from pytorch_stacked_hourglass.models.layers import Conv, Hourglass, Pool, Residual
+from pytorch_stacked_hourglass.task.loss import HeatmapLoss
 
 
 # 2d conv blocks
@@ -161,40 +164,92 @@ class EncoderDecorder(nn.Module):
         return x
 
 
-@BACKBONES.register_module()
-class P2PNet(BaseBackbone):
+# @BACKBONES.register_module()
+# class P2PNet(BaseBackbone):
 
-    def __init__(self, input_channels, output_channels):
-        super(P2PNet, self).__init__()
-        self.output_channels = output_channels
+#     def __init__(self, input_channels, output_channels):
+#         super(P2PNet, self).__init__()
+#         self.output_channels = output_channels
 
-        self.front_layers = nn.Sequential(
-            Basic2DBlock(input_channels, 16, 7),
-            Res2DBlock(16, 32),
-        )
+#         self.front_layers = nn.Sequential(
+#             Basic2DBlock(input_channels, 16, 7),
+#             Res2DBlock(16, 32),
+#         )
 
-        self.encoder_decoder = EncoderDecorder()
+#         self.encoder_decoder = EncoderDecorder()
 
-        self.output_layer = nn.Conv2d(
-            32, output_channels, kernel_size=1, stride=1, padding=0)
+#         self.output_layer = nn.Conv2d(
+#             32, output_channels, kernel_size=1, stride=1, padding=0)
 
-        self._initialize_weights()
+#         self._initialize_weights()
+
+#     def forward(self, x):
+#         x = self.front_layers(x)
+#         x = self.encoder_decoder(x)
+#         x = self.output_layer(x)
+#         return x
+
+#     def _initialize_weights(self):
+#         for m in self.modules():
+#             if isinstance(m, nn.Conv2d):
+#                 nn.init.normal_(m.weight, 0, 0.001)
+#                 nn.init.constant_(m.bias, 0)
+#             elif isinstance(m, nn.ConvTranspose2d):
+#                 nn.init.normal_(m.weight, 0, 0.001)
+#                 nn.init.constant_(m.bias, 0)
+class Merge(nn.Module):
+    def __init__(self, x_dim, y_dim):
+        super(Merge, self).__init__()
+        self.conv = Conv(x_dim, y_dim, 1, relu=False, bn=False)
 
     def forward(self, x):
-        x = self.front_layers(x)
-        x = self.encoder_decoder(x)
-        x = self.output_layer(x)
-        return x
+        return self.conv(x)
 
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.normal_(m.weight, 0, 0.001)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.ConvTranspose2d):
-                nn.init.normal_(m.weight, 0, 0.001)
-                nn.init.constant_(m.bias, 0)
+@BACKBONES.register_module()
+class P2PNet(nn.Module):
+    def __init__(self, input_channels, output_channels, bn=False, increase=0, **kwargs):
+        super(P2PNet, self).__init__()
+        nstack = 8
+        self.nstack = nstack
+        
+        self.pre = nn.Sequential(
+            Conv(3, 64, 7, 2, bn=True, relu=True),
+            Residual(64, 128),
+            Pool(2, 2),
+            Residual(128, 128),
+            Residual(128, input_channels)
+        )
+        
+        self.hgs = nn.ModuleList( [
+        nn.Sequential(
+            Hourglass(4, input_channels, bn, increase),
+        ) for i in range(nstack)] )
+        
+        self.features = nn.ModuleList( [
+        nn.Sequential(
+            Residual(input_channels, input_channels),
+            Conv(input_channels, input_channels, 1, bn=True, relu=True)
+        ) for i in range(nstack)] )
+        
+        self.outs = nn.ModuleList( [Conv(input_channels, output_channels, 1, relu=False, bn=False) for i in range(nstack)] )
+        self.merge_features = nn.ModuleList( [Merge(input_channels, input_channels) for i in range(nstack-1)] )
+        self.merge_preds = nn.ModuleList( [Merge(output_channels, input_channels) for i in range(nstack-1)] )
+        self.nstack = nstack
+        self.heatmapLoss = HeatmapLoss()
 
+    def forward(self, x):
+        ## our posenet
+        # x = imgs.permute(0, 3, 1, 2) #x of size 1,3,inpdim,inpdim
+        # x = self.pre(x)
+        combined_hm_preds = []
+        for i in range(self.nstack):
+            hg = self.hgs[i](x)
+            feature = self.features[i](hg)
+            preds = self.outs[i](feature)
+            combined_hm_preds.append(preds)
+            if i < self.nstack - 1:
+                x = x + self.merge_preds[i](preds) + self.merge_features[i](feature)
+        return torch.stack(combined_hm_preds, 1)[:,-1,:,:], torch.stack(combined_hm_preds, 1)
 
 @BACKBONES.register_module()
 class CenterNet(BaseBackbone):

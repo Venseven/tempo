@@ -167,6 +167,7 @@ class RNNDetectAndRegress(BasePose):
                 bbox3d_offset=None,
                 bbox3d=None,
                 joints=None,
+                targets_3d = None,
                 **kwargs):
         """
         Note:
@@ -206,7 +207,7 @@ class RNNDetectAndRegress(BasePose):
         """
         if return_loss:
             return self.forward_train(img, img_metas, bbox3d_index,
-                                      bbox3d_offset, bbox3d, targets_2d,
+                                      bbox3d_offset, bbox3d,targets_3d,targets_2d,
                                       targets_1d, joints, input_heatmaps)
         else:
             return self.forward_test(img, img_metas, input_heatmaps)
@@ -259,6 +260,7 @@ class RNNDetectAndRegress(BasePose):
                       bbox3d_index,
                       bbox3d_offset,
                       bbox3d,
+                      targets_3d = None,
                       targets_2d=None,
                       targets_1d=None,
                       joints=None,
@@ -332,7 +334,7 @@ class RNNDetectAndRegress(BasePose):
             feature_maps=feature_maps,
             targets_2d=targets_2d,
             targets_1d=targets_1d,
-            bbox3d_index=bbox3d_index,
+            bbox3d_index=bbox3d_index, 
             bbox3d=bbox3d,
             return_preds=True)
         if not self.use_gt_detections:
@@ -344,6 +346,8 @@ class RNNDetectAndRegress(BasePose):
             img_metas,
             return_preds=True,
             return_loss=True,
+            targets_3d = targets_3d,
+            targets_2d = targets_2d,
             feature_maps=feature_maps,
             tracker_idxs=None,
             human_candidates=human_candidates)

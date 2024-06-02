@@ -5,6 +5,8 @@ from mmpose.models.detectors.base import BasePose
 
 from .model_utils import RNNFeatureEncoder
 from .project_layer import ProjectLayer, ProjectLayerWithMask
+from pytorch_stacked_hourglass.models.layers import Conv, Hourglass, Pool, Residual
+from pytorch_stacked_hourglass.task.loss import HeatmapLoss
 
 @POSENETS.register_module()
 class RNNVoxelSinglePose(BasePose):
@@ -60,7 +62,7 @@ class RNNVoxelSinglePose(BasePose):
         self.horizon = horizon
         self.input_time = input_time
         self.time = 0
-        self.prev_features = torch.zeros(self.num_candidates, 3, num_features, 64, 64)
+        self.prev_features = torch.zeros(self.num_candidates, 3, num_features, 80, 80)
 
     def forward(self,
                 img,
@@ -68,6 +70,8 @@ class RNNVoxelSinglePose(BasePose):
                 return_loss=True,
                 return_preds=False,
                 feature_maps=None,
+                targets_3d =  None,
+                targets_2d =  None,
                 tracker_idxs=None,
                 human_candidates=None,
                 **kwargs):
@@ -100,7 +104,7 @@ class RNNVoxelSinglePose(BasePose):
         if return_loss:
             return self.forward_train(img, img_metas, feature_maps,
                                       human_candidates, tracker_idxs,
-                                      return_preds)
+                                      return_preds, targets_2d, targets_3d)
         else:
             return self.forward_test(img, img_metas, feature_maps,
                                      human_candidates, tracker_idxs)
@@ -209,6 +213,8 @@ class RNNVoxelSinglePose(BasePose):
                       human_candidates=None,
                       tracker_idxs=None,
                       return_preds=False,
+                      targets_2d = None,
+                      targets_3d = None,
                       **kwargs):
         """Defines the computation performed at training.
         Note:
@@ -264,13 +270,14 @@ class RNNVoxelSinglePose(BasePose):
         valid_weights = []
 
         for n in range(num_candidates):
+            target_3d_projections_per_candidate = torch.concat([targets_3d[0][:,n,:,:,:,0], targets_3d[0][:,n,:,0,:,:], targets_3d[0][:,n,:,:,0,:]])
             index = pred[:, n, 0, 3] >= 0
             num_valid = index.sum()
             if num_valid > 0:
                 input, offsets, stacked_grids = self.compute_person_feature_maps(
                     img_metas, feature_maps, human_candidates, n)
 
-                output, _ = self.pose_rnn(input)               
+                output, _,_ = self.pose_rnn(input)               
                 pose_preds, fused_pose_preds, final_pred = \
                     self.produce_pose_outputs(output, index, offsets, stacked_grids)
                 # Only save the last index for eval purposes.
@@ -305,7 +312,10 @@ class RNNVoxelSinglePose(BasePose):
                 torch.max(pose_input_cube, dim=3)[0]
             ])
             #joint_features, temporal_rep = self.pose_net(input)
-            joint_features, _ = self.pose_rnn(input)
+            joint_features, _, encoding_shg = self.pose_rnn(input)
+            # target_3d_projections = torch.concat([targets_3d[0][:,:,:,:,0], targets_3d[0][:,:,0,:,:], targets_3d[0][:,:,:,0,:]])
+            ## TODO : LOSS FUNCTION
+            
             joint_features = torch.chunk(joint_features, 3)
             # Output is [batch_size * 3, 1, out_channels, height, width]
             joint_features = torch.stack(
@@ -326,6 +336,14 @@ class RNNVoxelSinglePose(BasePose):
             pose_preds = pose_preds.transpose(0, 1)
             pose_loss = self.pose_head.get_loss(fused_pose_preds, pose_preds,
                                                 pseudo_targets, pseudo_weights)
+            combined_loss = []
+            self.heatmapLoss = HeatmapLoss()
+            for i in range(8):
+                combined_loss.append(self.heatmapLoss(encoding_shg[:,i], target_3d_projections_per_candidate))
+            # combined_loss = torch.stack(combined_loss, dim=1)    
+            shg_loss = torch.mean(torch.stack(combined_loss))
+            pose_loss["loss_pose"] = pose_loss["loss_pose"] + shg_loss
+            # losses.update(shg_loss)
             losses.update(pose_loss)
 
         if return_preds:
