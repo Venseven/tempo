@@ -268,16 +268,18 @@ class RNNVoxelSinglePose(BasePose):
         valid_preds_2d = []
         valid_targets = []
         valid_weights = []
+        valid_heatmaps = []
+        valid_encodings = []
 
         for n in range(num_candidates):
-            target_3d_projections_per_candidate = torch.concat([targets_3d[0][:,n,:,:,:,0], targets_3d[0][:,n,:,0,:,:], targets_3d[0][:,n,:,:,0,:]])
+            target_3d_projections_per_candidate = targets_3d[0][0,n,:,:,:,:]
             index = pred[:, n, 0, 3] >= 0
             num_valid = index.sum()
             if num_valid > 0:
                 input, offsets, stacked_grids = self.compute_person_feature_maps(
                     img_metas, feature_maps, human_candidates, n)
 
-                output, _,_ = self.pose_rnn(input)               
+                output, _,encoding_shg = self.pose_rnn(input)               
                 pose_preds, fused_pose_preds, final_pred = \
                     self.produce_pose_outputs(output, index, offsets, stacked_grids)
                 # Only save the last index for eval purposes.
@@ -292,6 +294,9 @@ class RNNVoxelSinglePose(BasePose):
                 valid_weights.append(gt_3d_vis[index, :, pred[index, n, 0,
                                                               3].long(), :,
                                                0:1].float().flatten(end_dim=1))
+                valid_heatmaps.append(target_3d_projections_per_candidate)
+                valid_encodings.append(encoding_shg)
+
 
         losses = dict()
         if len(valid_preds) > 0:
@@ -299,9 +304,19 @@ class RNNVoxelSinglePose(BasePose):
             valid_weights = torch.cat(valid_weights, dim=0)
             valid_preds = torch.cat(valid_preds, dim=0)
             valid_preds2d = torch.cat(valid_preds_2d, dim=0)
+            # valid_heatmaps = torch.cat(valid_heatmaps)
+            pose_loss = self.pose_head.get_loss(valid_preds, valid_preds2d,
+                                        valid_targets, valid_weights)
+            combined_loss = []
+            self.heatmapLoss = HeatmapLoss()
+            for n,encoding_shg_iter in enumerate(valid_encodings):
+                for i in range(8):
+                    combined_loss.append(self.heatmapLoss(encoding_shg_iter[:,i], valid_heatmaps[n]))
+            # combined_loss = torch.stack(combined_loss, dim=1)    
+            shg_loss = torch.mean(torch.stack(combined_loss))
+            pose_loss["loss_pose"] = pose_loss["loss_pose"] + shg_loss
             losses.update(
-                self.pose_head.get_loss(valid_preds, valid_preds2d,
-                                        valid_targets, valid_weights))
+                pose_loss)
         else:
             sub_cube_size = img_metas[0]['ann_info'][0]['sub_cube_size']
             pose_input_cube = feature_maps[0][0].new_zeros(
@@ -336,13 +351,13 @@ class RNNVoxelSinglePose(BasePose):
             pose_preds = pose_preds.transpose(0, 1)
             pose_loss = self.pose_head.get_loss(fused_pose_preds, pose_preds,
                                                 pseudo_targets, pseudo_weights)
-            combined_loss = []
-            self.heatmapLoss = HeatmapLoss()
-            for i in range(8):
-                combined_loss.append(self.heatmapLoss(encoding_shg[:,i], target_3d_projections_per_candidate))
-            # combined_loss = torch.stack(combined_loss, dim=1)    
-            shg_loss = torch.mean(torch.stack(combined_loss))
-            pose_loss["loss_pose"] = pose_loss["loss_pose"] + shg_loss
+            # combined_loss = []
+            # self.heatmapLoss = HeatmapLoss()
+            # for i in range(8):
+            #     combined_loss.append(self.heatmapLoss(encoding_shg[:,i], target_3d_projections_per_candidate))
+            # # combined_loss = torch.stack(combined_loss, dim=1)    
+            # shg_loss = torch.mean(torch.stack(combined_loss))
+            # pose_loss["loss_pose"] = pose_loss["loss_pose"] + shg_loss
             # losses.update(shg_loss)
             losses.update(pose_loss)
 
